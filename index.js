@@ -6,25 +6,26 @@ import chalk from 'chalk';
 import Table from 'cli-table3';
 import ora from 'ora';
 import dotenv from 'dotenv';
+import { performance } from 'perf_hooks';
 
 // Load environment variables from .env file
 dotenv.config();
 
-const NUM_TODOS = process.env.NUM_TODOS || 20;
-const NUM_RETRIES = process.env.NUM_RETRIES || 3;
+const NUM_TODOS = parseInt(process.env.NUM_TODOS, 10) || 20;
+const NUM_RETRIES = parseInt(process.env.NUM_RETRIES, 10) || 3;
 
 const program = new Command();
 
 program
   .version('1.0.0')
   .description('Fetch TODOs from jsonplaceholder')
-  .option('-n, --num <number>', 'Number of TODOs to fetch', NUM_TODOS)
-  .option('-r, --retries <number>', 'Number of retries for failed requests', NUM_RETRIES)
+  .option('-n, --num <number>', 'Number of TODOs to fetch', parseInt)
+  .option('-r, --retries <number>', 'Number of retries for failed requests', parseInt)
   .parse(process.argv);
 
 const options = program.opts();
-const totalTodos = +options.num || NUM_TODOS; // parse to int
-const totalRetries = +options.retries || NUM_RETRIES;
+const numTodos = options.num || NUM_TODOS;
+const numRetries = options.retries || NUM_RETRIES;
 
 const fetchTodo = async (id, retries) => {
   try {
@@ -32,10 +33,10 @@ const fetchTodo = async (id, retries) => {
     return response.data;
   } catch (error) {
     if (retries > 0) {
-      console.log(chalk.yellow(`Retrying TODO ${id} (${totalRetries - retries + 1})...`));
+      console.log(chalk.yellow(`Retrying TODO ${id} (${NUM_RETRIES - retries + 1})...`));
       return fetchTodo(id, retries - 1);
     } else {
-      console.log(chalk.red(`Failed to fetch TODO ${id} after ${totalRetries} retries.`));
+      console.log(chalk.red(`Failed to fetch TODO ${id} after ${NUM_RETRIES} retries.`));
       return null;
     }
   }
@@ -51,7 +52,7 @@ const fetchTodos = async (numTodos, retries) => {
 };
 
 const main = async () => {
-  console.log(chalk.blue(`Fetching ${totalTodos} TODOs with up to ${totalRetries} retries each...`));
+  console.log(chalk.blue(`Fetching ${numTodos} TODOs with up to ${numRetries} retries each...`));
 
   const table = new Table({
     head: [chalk.cyan('Index/ID'), chalk.cyan('Completion Status'), chalk.cyan('Title')],
@@ -59,20 +60,45 @@ const main = async () => {
   });
 
   const spinner = ora('Fetching TODOs...').start();
-  const todoPromises = await fetchTodos(totalTodos, totalRetries);
+  const startTime = performance.now(); // Start time measurement
+  const todoPromises = await fetchTodos(numTodos, numRetries);
 
   let fetchedTodos = 0;
+  let successfulFetches = 0;
+  let failedFetches = 0;
+  let completedTodos = 0;
+  let incompleteTodos = 0;
+
   const processTodo = async (promise) => {
     const todo = await promise;
+    fetchedTodos++;
     if (todo) {
+      successfulFetches++;
+      if (todo.completed) {
+        completedTodos++;
+      } else {
+        incompleteTodos++;
+      }
       table.push([todo.id, todo.completed ? chalk.green('Completed') : chalk.red('Not Completed'), todo.title]);
+      console.clear();
       console.log(table.toString());
-      table.splice(-1, 1); // Remove the last row to prevent duplicate output
-      fetchedTodos++;
+    } else {
+      failedFetches++;
     }
-    if (fetchedTodos === totalTodos) {
+
+    if (fetchedTodos === numTodos) {
       spinner.stop();
+      const endTime = performance.now(); // End time measurement
+      const timeTaken = ((endTime - startTime) / 1000).toFixed(2); // Time taken in seconds
+
       console.log(chalk.green('All TODOs fetched.'));
+      console.log(chalk.yellow('\nSummary:'));
+      console.log(`  ${chalk.green('Success:')} ${successfulFetches}`);
+      console.log(`  ${chalk.red('Failed:')} ${failedFetches}`);
+      console.log(`  ${chalk.blue('Total fetched:')} ${fetchedTodos}`);
+      console.log(`  ${chalk.green('Completed:')} ${completedTodos}`);
+      console.log(`  ${chalk.red('Incomplete:')} ${incompleteTodos}`);
+      console.log(`  ${chalk.magenta('Time taken:')} ${timeTaken} seconds`);
     }
   };
 
